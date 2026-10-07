@@ -1,10 +1,27 @@
 import argparse
+import getpass
 import os
 import platform
+import shutil
 import socket
 import time
 
 from sip import build, parse
+
+COMMANDS = {
+    "ping": lambda: "pong",
+    "info": lambda: f"{platform.system()} {platform.release()} {platform.machine()}",
+    "hostname": socket.gethostname,
+    "user": getpass.getuser,
+    "time": lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    "disk": lambda: "disk /: {:.1f} GiB libres / {:.1f} GiB".format(
+        shutil.disk_usage("/").free / 2**30, shutil.disk_usage("/").total / 2**30
+    ),
+}
+
+
+def execute(command):
+    return COMMANDS[command]() if command in COMMANDS else "commande refusée"
 
 
 def main():
@@ -22,19 +39,14 @@ def main():
     sock.bind(("0.0.0.0", 0))
     sock.sendto(build("REGISTER", "c2", args.id, "online", secret), server)
     seen = set()
-    commands = {
-        "ping": lambda: "pong",
-        "info": lambda: f"{platform.system()} {platform.release()} {platform.machine()}",
-        "time": lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
     while True:
         data, address = sock.recvfrom(65535)
         if address != server:
             continue
         try:
             method, target, sender, body = parse(data, secret, seen)
-            if method == "MESSAGE" and target == args.id and sender == "c2" and body in commands:
-                sock.sendto(build("MESSAGE", "c2", args.id, commands[body](), secret), server)
+            if method == "MESSAGE" and target == args.id and sender == "c2":
+                sock.sendto(build("MESSAGE", "c2", args.id, execute(body), secret), server)
         except (UnicodeError, ValueError):
             continue
 
