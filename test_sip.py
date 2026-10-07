@@ -8,7 +8,9 @@ from sip import build, parse
 class SipTest(unittest.TestCase):
     def test_agent_commands_are_allowlisted(self):
         self.assertEqual(execute("ping"), "pong")
-        self.assertEqual(execute("bash -c id"), "commande refusée")
+        self.assertEqual(execute("whoami"), execute("user"))
+        self.assertEqual(execute("bash printf 'hello world'"), "hello world")
+        self.assertEqual(execute("bash"), "commande refusée")
 
     @patch("sip.time.time", return_value=1000)
     def test_signed_round_trip_and_replay(self, _):
