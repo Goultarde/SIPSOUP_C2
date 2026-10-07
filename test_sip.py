@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from unittest.mock import patch
 
 from agent import execute
@@ -10,7 +11,13 @@ class SipTest(unittest.TestCase):
         self.assertEqual(execute("ping"), "pong")
         self.assertEqual(execute("whoami"), execute("user"))
         self.assertEqual(execute("bash printf 'hello world'"), "hello world")
-        self.assertEqual(execute("bash"), "commande refusée")
+
+    def test_interactive_bash_keeps_its_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(execute("bash"), "session bash ouverte")
+            execute(f"bash-session cd {directory}")
+            self.assertEqual(execute("bash-session pwd"), directory)
+            self.assertEqual(execute("bash-session exit"), "session bash fermée")
 
     @patch("sip.time.time", return_value=1000)
     def test_signed_round_trip_and_replay(self, _):
